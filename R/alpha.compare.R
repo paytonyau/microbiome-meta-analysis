@@ -33,73 +33,115 @@
 #' alphacom6.rm.sexsg$alphasum[,1:5]
 
 
-alpha.compare<-function(datlist,depth,mapfile,mapsampleid,comvar,adjustvar,personid="personid", longitudinal="yes",age.limit=1000000,standardize=FALSE,...){
-  #sapply(c("lme4","lmerTest","plyr","dplyr",'reshape2'), require, character.only = TRUE)
-  alphamean<-matrix(NA, nrow=length(names(datlist)),ncol=(ncol(datlist[[1]])-3))
-  rownames(alphamean)<-names(datlist)
-  colnames(alphamean)<-colnames(datlist[[1]])[-c(1:3)]
-  for (i in 1: length(names(datlist))){
-    dat.a<-datlist[[i]]
-    raredepth<-unique(dat.a$sequences.per.sample)[as.numeric(as.character(depth))]
-    if (depth=="max"){
-      raredepth<-max(unique(dat.a$sequences.per.sample))
+# Function to compare alpha diversity between groups
+alpha.compare <- function(datlist, depth, mapfile, mapsampleid, comvar, adjustvar, personid = "personid", longitudinal = "yes", age.limit = 1000000, standardize = FALSE, ...) {
+
+  # Load required packages
+  #sapply(c("lme4", "lmerTest", "plyr", "dplyr", "reshape2"), require, character.only = TRUE)
+
+  # Create empty matrices to store results
+  alphamean <- matrix(NA, nrow = length(names(datlist)), ncol = (ncol(datlist[[1]]) - 3))
+  rownames(alphamean) <- names(datlist)
+  colnames(alphamean) <- colnames(datlist[[1]])[-c(1:3)]
+
+  # Loop over data lists
+  for (i in 1:length(names(datlist))) {
+
+    # Get data for current group
+    dat.a <- datlist[[i]]
+
+    # Get rarefaction depth
+    raredepth <- unique(dat.a$sequences.per.sample)[as.numeric(as.character(depth))]
+    if (depth == "max") {
+      raredepth <- max(unique(dat.a$sequences.per.sample))
     }
-    dat.a[,-c(1:3)]<-lapply(dat.a[,-c(1:3)],as.character)
-    dat.a[,-c(1:3)]<-lapply(dat.a[,-c(1:3)],as.numeric)
-    dat.mean<-plyr::ddply(dat.a, plyr::.(sequences.per.sample), plyr::colwise(mean))
-    alphamean[i,]<-matrix(unlist(dat.mean[dat.mean$sequences.per.sample==raredepth,-c(1:3)]),nrow=1)
+
+    # Convert columns to characters and then to numeric
+    dat.a[, -c(1:3)] <- lapply(dat.a[, -c(1:3)], as.character)
+    dat.a[, -c(1:3)] <- lapply(dat.a[, -c(1:3)], as.numeric)
+
+    # Calculate mean alpha diversity for each rarefaction depth
+    dat.mean <- plyr::ddply(dat.a, plyr::.(sequences.per.sample), plyr::colwise(mean))
+    alphamean[i, ] <- matrix(unlist(dat.mean[dat.mean$sequences.per.sample == raredepth, -c(1:3)]), nrow = 1)
   }
-  alphamean<-as.data.frame(t(alphamean))
-  alphamean$sampleid<-sub('.*x', '', rownames(alphamean)) #dirty fix to remove added x to samplenames started with number e.g. Haiti data
-  #standardize alpha
-  alphameans<-dplyr::mutate_at(alphamean,.vars=names(datlist),.funs=function(x){(x-mean(x,na.r=T))/sd(x,na.rm=T)})
-  mapfile[,mapsampleid]<-tolower(mapfile[,mapsampleid])
-  #get sample only in mapfile (all age)
-  alphamean<-alphamean[alphamean$sampleid %in% mapfile[,mapsampleid],]
-  alphameans<-alphameans[alphameans$sampleid %in% mapfile[,mapsampleid],]
-  #merge with mapfile
-  #apply age limit for comparison
-  mapfile<-mapfile[mapfile$age.sample<=age.limit,]
-  if (standardize==FALSE){
-    alphamap<-merge(mapfile,alphamean,by.x=mapsampleid,by.y="sampleid")
+
+  # Convert alphamean to data frame
+  alphamean <- as.data.frame(t(alphamean))
+
+  # Remove added x from sample names that start with a number
+  alphamean$sampleid <- sub('.*x', '', rownames(alphamean))
+
+  # Standardize alpha diversity
+  if (standardize == TRUE) {
+    alphameans <- dplyr::mutate_at(alphamean, .vars = names(datlist), .funs = function(x) {
+      (x - mean(x, na.rm = T)) / sd(x, na.rm = T)
+    })
   }
-  if (standardize==TRUE){
-    alphamap<-merge(mapfile,alphameans,by.x=mapsampleid,by.y="sampleid")
+
+  # Convert mapfile column to lowercase
+  mapfile[, mapsampleid] <- tolower(mapfile[, mapsampleid])
+
+  # Get samples that are in both alphamean and mapfile
+  alphamean <- alphamean[alphamean$sampleid %in% mapfile[, mapsampleid], ]
+  if (standardize == TRUE) {
+    alphameans <- alphameans[alphameans$sampleid %in% mapfile[, mapsampleid], ]
   }
-  if (longitudinal=="yes"){
-    alphamap$personid<-as.factor(alphamap[,personid])
+
+  # Merge alphamean with mapfile
+  alphamap <- merge(mapfile, alphamean, by.x = mapsampleid, by.y = "sampleid")
+
+  # Apply age limit for comparison
+  mapfile <- mapfile[mapfile$age.sample <= age.limit, ]
+
+  # If longitudinal = yes, factor personid column
+  if (longitudinal == "yes") {
+    alphamap$personid <- as.factor(alphamap[, personid])
   }
-  alphasum<-NULL
-  for (j in 1: length(names(datlist))){
-    #mixed model
-    if (longitudinal=="yes"){
-      fitsum<-try(summary(lme4::glmer(as.formula(paste(names(datlist)[j],paste(c(comvar,adjustvar,"(1|personid)"),collapse="+"),sep="~")), data=alphamap,family=gaussian(link="identity"))))
+
+  # Create empty list to store results
+  alphasum <- NULL
+
+  # Loop over variables
+  for (j in 1:length(names(datlist))) {
+
+    # If longitudinal = yes, fit mixed model
+    if (longitudinal == "yes") {
+      fitsum <- try(summary(lme4::glmer(as.formula(paste(names(datlist)[j], paste(c(comvar, adjustvar,"(1|personid)"),collapse="+"),sep="~")), data=alphamap,family=gaussian(link="identity"))))
     }
-    #linear model
-    if (longitudinal=="no"){
-      fitsum<-try(summary(glm(as.formula(paste(names(datlist)[j],paste(c(comvar,adjustvar),collapse="+"),sep="~")), data=alphamap,family="gaussian")))
+	# If longitudinal = no, fit linear model
+    } else if (longitudinal == "no") {
+      fitsum <- try(summary(glm(as.formula(paste(names(datlist)[j], paste(c(comvar, adjustvar), collapse = "+"), sep = "~")), data = alphamap, family = "gaussian")))
     }
+
+    # If fit failed, print error message and return NA
     if (class(fitsum) == "try-error") {
       cat("Error in model fit, NA introduced.\n")
-      fitcoefw<-NULL
-      alphasum<-plyr::rbind.fill(alphasum,fitcoefw)
-    }
-    if (class(fitsum) != "try-error") {
-      fitcoef<-as.data.frame(fitsum$coefficients[rownames(fitsum$coefficients)!="(Intercept)",]) #remove intercept
-      if (longitudinal=="yes"){
-        fitcoef[,"Pr(>|t|)"]<-2*pnorm(-abs(fitcoef[,"Estimate"]/fitcoef[,"Std. Error"]))
+      fitcoefw <- NULL
+      alphasum <- plyr::rbind.fill(alphasum, fitcoefw)
+    } else {
+
+      # Extract coefficients and add column names
+      fitcoef <- as.data.frame(fitsum$coefficients[rownames(fitsum$coefficients) != "(Intercept)", ])
+      fitcoef$varname <- rownames(fitcoef)
+      fitcoef$id <- names(datlist)[j]
+
+      # If longitudinal = yes, add p-values
+      if (longitudinal == "yes") {
+        fitcoef$Pr(>|t|) <- 2 * pnorm(-abs(fitcoef$Estimate / fitcoef$Std. Error))
       }
-      fitcoef[,"varname"]<-rownames(fitcoef)
-      fitcoef[,"id"]<-names(datlist)[j]
-      fitcoefw<-reshape(fitcoef, idvar="id", timevar="varname", direction="wide")
-      alphasum<-plyr::rbind.fill(alphasum,fitcoefw)
+
+      # Reshape coefficients into wide format
+      fitcoefw <- reshape(fitcoef, idvar = "id", timevar = "varname", direction = "wide")
+
+      # Add fitcoefw to alphasum
+      alphasum <- plyr::rbind.fill(alphasum, fitcoefw)
     }
   }
-  if (standardize==TRUE){
-    return(list(alphamean=alphamean,alphamean.standardized=alphameans,alphasum=alphasum))
-  }
-  if (standardize==FALSE){
-    return(list(alphamean=alphamean,alphasum=alphasum))
+
+  # If standardize = yes, return list of alphamean, alphamean.standardized, and alphasum
+  if (standardize == TRUE) {
+    return(list(alphamean = alphamean, alphamean.standardized = alphameans, alphasum = alphasum))
+  } else {
+    return(list(alphamean = alphamean, alphasum = alphasum))
   }
 }
-
